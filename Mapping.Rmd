@@ -1,0 +1,186 @@
+---
+title: "Storm Surge Data"
+author: "Samuel McDonnell"
+date: "2024-03-13"
+output: html_document
+---
+
+```{r}
+data <- readRDS("gtsr_daily_max_1979_2014.rds")
+```
+
+```{r}
+head(data)
+names(data)
+levels(data$station_name)
+```
+
+```{r}
+
+set.seed(123)
+#MAPPING THE LON AND LAT POINTS
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(tmap)
+
+#Load spatial data
+ireland <- st_read("IRL_adm0.shp")
+
+#UNIQUE COORDS FOR LAT AND LON
+unique_coords <- unique(data[, c("lon", "lat")])
+
+#CONVERT TO Sf object
+unique_coords_sf <- st_as_sf(unique_coords, coords = c("lon", "lat"), crs = 4326)
+
+#PLOT
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(unique_coords_sf) +
+  tm_dots(col = "blue", size = 0.05, title = "Unique Coordinates") +
+  tm_style("gray")
+
+
+```
+
+```{r}
+dun_laoghaire<- subset(data, station_name == "795") #795 dun laoghaire
+
+# Convert the selected point to an sf object
+dun_laoghaire_sf <- st_as_sf(dun_laoghaire, coords = c("lon", "lat"), crs = 4326)
+
+# Plot the map
+tm_shape(ireland) +  
+  tm_borders() +      
+  tm_shape(dun_laoghaire_sf) +  
+  tm_dots(col = "blue", size = 0.5, title = "dun_laoghaire Observation") + 
+  tm_style("gray")   
+
+
+
+```
+
+```{r}
+# Time series plot
+ggplot(dun_laoghaire, aes(x = as.Date(date_time), y = surge_daily_max)) +
+  geom_line() +
+  labs(title = "Sea Level Surge Daily Maximum Values Over Time",
+       x = "Date", y = "Surge Daily Max")
+```
+
+```{r}
+# Seasonal decomposition additive
+ts_data <- ts(dun_laoghaire$surge_daily_max, frequency = 365.25)
+ts_decomp <- decompose(ts_data)
+plot(ts_decomp)
+
+#multiplicative
+ts_data2 <- ts(dun_laoghaire$surge_daily_max, frequency = 365.25)
+ts_decomp2 <- decompose(ts_data2, type = "multiplicative")
+plot(ts_decomp2)
+```
+
+```{r}
+# Define custom ordering of months from July to June
+custom_order <- c("Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun")
+
+# Convert month integer to corresponding month abbreviation
+dun_laoghaire$month <- factor(month.abb[dun_laoghaire$month], levels = custom_order)
+
+# Calculate monthly averages
+monthly_avg <- dun_laoghaire %>%
+  group_by(month) %>%
+  summarize(avg_surge_daily_max = mean(surge_daily_max), na.rm = TRUE)
+
+# Plot monthly averages with custom ordering
+ggplot(monthly_avg, aes(x = month, y = avg_surge_daily_max, group = 1)) +
+  geom_line() +
+  labs(title = "Monthly Averages of Sea Level Surge Daily Maximum Values (Total)",
+       x = "Month", y = "Avg Surge Daily Max")
+
+
+# Convert month integer to corresponding month abbreviation
+data$month <- factor(month.abb[data$month], levels = custom_order)
+
+# Calculate monthly averages
+monthly_avg <- data %>%
+  group_by(month) %>%
+  summarize(avg_surge_daily_max = mean(surge_daily_max), na.rm = TRUE)
+
+# Plot monthly averages with custom ordering
+ggplot(monthly_avg, aes(x = month, y = avg_surge_daily_max, group = 1)) +
+  geom_line() +
+  labs(title = "Monthly Averages of Sea Level Surge Daily Maximum Values (dun laoghaire)",
+       x = "Month", y = "Avg Surge Daily Max")
+
+#Every time I run this plot it shows different results?
+```
+
+```{r}
+# Yearly averages
+yearly_avg <- dun_laoghaire %>%
+  group_by(year) %>%
+  summarize(avg_surge_daily_max = mean(surge_daily_max))
+
+ggplot(yearly_avg, aes(x = year, y = avg_surge_daily_max)) +
+  geom_line() +
+  labs(title = "Yearly Averages of Sea Level Surge Daily Maximum Values (Dun Laoghaire)",
+       x = "Year", y = "Avg Surge Daily Max")
+
+```
+
+Two approaches to analyzing the extremes of a dataset. 
+First: Divide the data into blocks and take the maximum of each block. (GEV df)
+Second: Take values over a certain high threshold. (Pareto or GP df)
+
+Which approach will we take?
+
+
+For one location, find the extreme values using both threshold and block maxima methods.(GEV/GP methods) 
+Estimate the parameters of the distribution using statistical techniques such as maximum likelihood estimation (MLE) or method of moments.
+With the fitted model parameters, can make inferences about extreme events, such as estimating return levels (e.g., 50-year return level) or quantiles corresponding to certain probabilities of exceedance. can also use the model to predict future extreme events based on historical data.
+
+Heatmap Generation: create a heatmap visualization of extreme values. Each coastal location can be represented by a point on the map, with the intensity of color indicating the magnitude or frequency of extreme events at that location. You can also overlay administrative boundaries or other relevant geographic features to provide context. By creating a heatmap of extreme values across multiple coastal locations in Ireland, you can identify hotspots of extreme events
+
+Interactive Visualization: Consider creating an interactive heatmap that allows users to explore extreme values at different locations by zooming, panning, or hovering over data points.(might be cool but not useful for a thesis?) 
+
+```{r}
+library(extRemes)
+
+# Threshold method (GEV/GP)
+# Define threshold value
+threshold <- quantile(dun_laoghaire$surge_daily_max, probs = 0.95)
+
+# Fit GEV distribution to threshold exceedances
+gev_fit <- fevd(dun_laoghaire$surge_daily_max, threshold = threshold, method = "MLE")
+
+# Fit GEV distribution to block maxima
+gev_block_fit <- fevd(dun_laoghaire$surge_daily_max, method = "MLE")
+
+# Display results
+print("Threshold Method (GEV/GP):")
+print(summary(gev_fit))
+cat("\n")
+
+print("Block Maxima Method (GEV/GP):")
+print(summary(gev_block_fit))
+```
+
+```{r}
+plot(gev_fit)
+distill(gev_fit)
+plot(gev_fit, "trace")
+return.level(gev_fit)
+return.level(gev_fit, do.ci = TRUE)
+ci(gev_fit, return.period = c(2, 20, 100))
+ci(gev_fit, type = "parameter")
+
+fit_gumbel <- fevd(dun_laoghaire$surge_daily_max, type = "Gumbel", units = "deg C")
+plot(fit_gumbel)
+plot(fit_gumbel, "trace")
+```
+
+```{r}
+plot(gev_block_fit)
+distill(gev_block_fit)
+```
