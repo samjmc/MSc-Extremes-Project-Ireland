@@ -23,6 +23,7 @@ library(sf)
 library(ggplot2)
 library(dplyr)
 library(tmap)
+library(tidyr)
 
 #Load spatial data
 ireland <- st_read("IRL_adm0.shp")
