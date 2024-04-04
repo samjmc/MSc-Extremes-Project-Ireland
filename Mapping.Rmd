@@ -90,15 +90,29 @@ dun_laoghaire$month <- factor(month.abb[dun_laoghaire$month], levels = custom_or
 
 # Calculate monthly averages
 monthly_avg <- dun_laoghaire %>%
-  group_by(month) %>%
-  summarize(avg_surge_daily_max = mean(surge_daily_max), na.rm = TRUE)
+  group_by(year, month) %>%
+  summarize(avg_surge_daily_max = mean(surge_daily_max), na.rm = TRUE) %>% 
+  ungroup() %>% 
+  mutate(time_index = 1:n())
+
+annual_avg <- dun_laoghaire %>%
+  group_by(year) %>%
+  summarize(avg_surge_daily_max = mean(surge_daily_max), na.rm = TRUE) %>% 
+  ungroup() %>% 
+  mutate(time_index = 1:n())
+
 
 # Plot monthly averages with custom ordering
-ggplot(monthly_avg, aes(x = month, y = avg_surge_daily_max, group = 1)) +
+ggplot(monthly_avg, aes(x = time_index, y = avg_surge_daily_max, group = 1)) +
   geom_line() +
   labs(title = "Monthly Averages of Sea Level Surge Daily Maximum Values (Total)",
        x = "Month", y = "Avg Surge Daily Max")
 
+
+ggplot(annual_avg, aes(x = year, y = avg_surge_daily_max, group = 1)) +
+  geom_line() +
+  labs(title = "Annual Averages of Sea Level Surge Daily Maximum Values (Total)",
+       x = "Month", y = "Avg Surge Daily Max")
 
 # Convert month integer to corresponding month abbreviation
 data$month <- factor(month.abb[data$month], levels = custom_order)
@@ -151,12 +165,15 @@ library(extRemes)
 # Threshold method (GEV/GP)
 # Define threshold value
 threshold <- quantile(dun_laoghaire$surge_daily_max, probs = 0.95)
+dun_laoghaire_above_threshold <- dun_laoghaire %>% filter(surge_daily_max > threshold) ### the input should be the data that is above the threshold
+
+dun_laoghaire_annual_max <- dun_laoghaire %>% group_by(year) %>% summarise(annual_max = max(surge_daily_max))
 
 # Fit GEV distribution to threshold exceedances
-gev_fit <- fevd(dun_laoghaire$surge_daily_max, threshold = threshold, method = "MLE")
+gev_fit <- fevd(dun_laoghaire_above_threshold$surge_daily_max, threshold = threshold, method = "MLE")
 
 # Fit GEV distribution to block maxima
-gev_block_fit <- fevd(dun_laoghaire$surge_daily_max, method = "MLE")
+gev_block_fit <- fevd(dun_laoghaire_annual_max$annual_max, method = "MLE")
 
 # Display results
 print("Threshold Method (GEV/GP):")
@@ -169,9 +186,11 @@ print(summary(gev_block_fit))
 
 ```{r}
 plot(gev_fit)
+plot(gev_block_fit) ## plot block max fit
 distill(gev_fit)
 plot(gev_fit, "trace")
 return.level(gev_fit)
+return.level(gev_block_fit)
 return.level(gev_fit, do.ci = TRUE)
 ci(gev_fit, return.period = c(2, 20, 100))
 ci(gev_fit, type = "parameter")
