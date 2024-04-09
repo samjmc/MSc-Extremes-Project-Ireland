@@ -42,6 +42,7 @@ tm_shape(ireland) +
   tm_style("gray")
 
 
+
 ```
 
 ```{r}
@@ -105,44 +106,17 @@ annual_avg <- dun_laoghaire %>%
 # Plot monthly averages with custom ordering
 ggplot(monthly_avg, aes(x = time_index, y = avg_surge_daily_max, group = 1)) +
   geom_line() +
-  labs(title = "Monthly Averages of Sea Level Surge Daily Maximum Values (Total)",
+  labs(title = "Monthly Averages of Sea Level Surge Daily Maximum Values (Dun Laoghaire)",
        x = "Month", y = "Avg Surge Daily Max")
 
 
 ggplot(annual_avg, aes(x = year, y = avg_surge_daily_max, group = 1)) +
   geom_line() +
-  labs(title = "Annual Averages of Sea Level Surge Daily Maximum Values (Total)",
-       x = "Month", y = "Avg Surge Daily Max")
-
-# Convert month integer to corresponding month abbreviation
-data$month <- factor(month.abb[data$month], levels = custom_order)
-
-# Calculate monthly averages
-monthly_avg <- data %>%
-  group_by(month) %>%
-  summarize(avg_surge_daily_max = mean(surge_daily_max), na.rm = TRUE)
-
-# Plot monthly averages with custom ordering
-ggplot(monthly_avg, aes(x = month, y = avg_surge_daily_max, group = 1)) +
-  geom_line() +
-  labs(title = "Monthly Averages of Sea Level Surge Daily Maximum Values (dun laoghaire)",
-       x = "Month", y = "Avg Surge Daily Max")
-
-#Every time I run this plot it shows different results?
-```
-
-```{r}
-# Yearly averages
-yearly_avg <- dun_laoghaire %>%
-  group_by(year) %>%
-  summarize(avg_surge_daily_max = mean(surge_daily_max))
-
-ggplot(yearly_avg, aes(x = year, y = avg_surge_daily_max)) +
-  geom_line() +
-  labs(title = "Yearly Averages of Sea Level Surge Daily Maximum Values (Dun Laoghaire)",
+  labs(title = "Annual Averages of Sea Level Surge Daily Maximum Values (Dun Laoghaire)",
        x = "Year", y = "Avg Surge Daily Max")
-
 ```
+
+
 
 Two approaches to analyzing the extremes of a dataset. 
 First: Divide the data into blocks and take the maximum of each block. (GEV df)
@@ -164,7 +138,7 @@ library(extRemes)
 
 # Threshold method (GEV/GP)
 # Define threshold value
-threshold <- quantile(dun_laoghaire$surge_daily_max, probs = 0.95)
+threshold <- quantile(dun_laoghaire$surge_daily_max, probs = 0.9) #.9 has lower neg log likelihood than 0.95
 dun_laoghaire_above_threshold <- dun_laoghaire %>% filter(surge_daily_max > threshold) ### the input should be the data that is above the threshold
 
 dun_laoghaire_annual_max <- dun_laoghaire %>% group_by(year) %>% summarise(annual_max = max(surge_daily_max))
@@ -182,25 +156,180 @@ cat("\n")
 
 print("Block Maxima Method (GEV/GP):")
 print(summary(gev_block_fit))
+
+#AIC and BIC, neg log likelihood all much better for threshold method
 ```
 
 ```{r}
-plot(gev_fit)
-plot(gev_block_fit) ## plot block max fit
+#what does the gev distribution look like once you've estimated parameters
+plot(gev_fit) #threshold
+plot(gev_block_fit) ## plot block max fit (looks better, fits inside confidence intervals)
+
 distill(gev_fit)
+distill(gev_block_fit)
 plot(gev_fit, "trace")
-return.level(gev_fit)
-return.level(gev_block_fit)
-return.level(gev_fit, do.ci = TRUE)
-ci(gev_fit, return.period = c(2, 20, 100))
-ci(gev_fit, type = "parameter")
 
-fit_gumbel <- fevd(dun_laoghaire$surge_daily_max, type = "Gumbel", units = "deg C")
-plot(fit_gumbel)
-plot(fit_gumbel, "trace")
+
 ```
 
 ```{r}
-plot(gev_block_fit)
-distill(gev_block_fit)
+return.level(gev_fit) #Returns for threshold is 20-year: 0.85, 100-year: 1.15. This means that if the sea-level surges 1.15 metres above the mean sea level it is a 100-year event. The mean sea level is important here because if the tide is low and there is a surge of 1.27 metres, it won't have as much of an impact as if there was a high tide which would lead to flooding. In the scope of this project we can look at threshold vs block maxima and compare between locations. Then we look at clustering and see if there are locations where these things start to group together.
+return.level(gev_block_fit) #Returns for block maxima is 20-year: 1.1, 100-year: 1.27.
+
+return.level(gev_fit, do.ci = TRUE) # return level confidence intervals
+return.level(gev_block_fit, do.ci = TRUE)
+
+
+ci(gev_fit, type = "parameter") # parameter confidence intervals
+ci(gev_block_fit, type = "parameter")
+
+```
+
+
+```{r}
+
+station_subset <- subset(data, station_name %in% levels(data$station_name)[1:5])
+
+# Define function to estimate return levels for a given station
+estimate_return_levels <- function(station_data) {
+  # Define threshold value
+  threshold <- quantile(station_data$surge_daily_max, probs = 0.9)
+  
+  # Filter data above threshold
+  station_data_above_threshold <- station_data %>% filter(surge_daily_max > threshold)
+  
+  # Fit GEV distribution to threshold exceedances
+  gev_fit <- fevd(station_data_above_threshold$surge_daily_max, threshold = threshold, method = "MLE")
+  
+  # Estimate return levels
+  return_levels <- return.level(gev_fit, return.period = c(20, 100), do.ci = TRUE)
+  
+  # Return the return levels
+  return(return_levels)
+}
+
+# Create an empty dataframe to store return level estimates for all stations
+return_levels_all <- data.frame(station_name = character(),
+                                 return_20yr = numeric(), return_100yr = numeric(),
+                                 stringsAsFactors = FALSE)
+
+# Loop through each station in the subset
+for (station_name in unique(data$station_name)) {
+  # Subset data for the current station
+  station_data <- data[data$station_name == station_name, ]
+  
+  # Estimate return levels for the current station
+  return_levels <- estimate_return_levels(station_data)
+  
+  # Add return levels to the dataframe
+  return_levels_all <- rbind(return_levels_all, data.frame(station_name = station_name,
+                                                          return_20yr = return_levels[1],
+                                                          return_100yr = return_levels[2]))
+}
+
+# Remove the first row (initialized with empty strings)
+return_levels_all <- return_levels_all[-1, ]
+
+# Print the dataframe
+print(return_levels_all)
+
+
+
+```
+
+```{r}
+
+#plot heatmap of return level estimates
+#This is for the threshold method
+
+# Select station_name, lon, and lat columns and remove duplicate rows
+data_unique <- distinct(data, station_name, lon, lat)
+
+return_levels_with_coords <- merge(return_levels_all, data_unique[, c("station_name", "lon", "lat")], by = "station_name")
+
+# Convert return_levels_all_with_coords to sf object
+return_levels_sf <- st_as_sf(return_levels_with_coords, coords = c("lon", "lat"), crs = 4326)
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf) +
+  tm_dots(col = "return_100yr", size = 1, alpha = 0.5, title = "Return Level (100yr) Threshold Method") +
+  tm_style("gray")
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf) +
+  tm_dots(col = "return_20yr", size = 1, alpha = 0.5, title = "Return Level (20yr) Threshold Method") +
+  tm_style("gray")
+
+#A return level of 1 means that the exceedance sea level would need to be 1 metre above the mean still sea level in order to be considered a 1-in-20 year event.
+```
+
+
+
+
+```{r}
+#BLOCK MAXIMA APPROACH
+
+
+# Define function to estimate return levels for a given station
+estimate_return_levels_block<- function(station_data_block) {
+  # Fit GEV distribution to block maxima
+  gev_block_fit <- fevd(station_data_block$surge_daily_max, method = "MLE")
+  
+  # Estimate return levels
+  return_levels_block <- return.level(gev_block_fit, return.period = c(20, 100), do.ci = TRUE)
+  
+  # Return the return levels
+  return(return_levels_block)
+}
+
+# Create an empty dataframe to store return level estimates for all stations
+return_levels_all_block <- data.frame(station_name = character(),
+                                 return_20yr = numeric(), return_100yr = numeric(),
+                                 stringsAsFactors = FALSE)
+# Loop through each station in the subset
+for (station_name in unique(data$station_name)) {
+  # Subset data for the current station
+  station_data_block <- data[data$station_name == station_name, ]
+  
+  # Estimate return levels for the current station
+  return_levels_block <- estimate_return_levels_block(station_data_block)
+  
+  # Add return levels to the dataframe
+  return_levels_all_block <- rbind(return_levels_all_block, data.frame(station_name = station_name,
+                                                          return_20yr = return_levels_block[1],
+                                                          return_100yr = return_levels_block[2]))
+}
+
+# Remove the first row (initialized with empty strings)
+return_levels_all_block <- return_levels_all_block[-1, ]
+
+# Print the dataframe
+print(return_levels_all_block)
+
+```
+```{r}
+data_unique <- distinct(data, station_name, lon, lat)
+
+return_levels_with_coords_block <- merge(return_levels_all_block, data_unique[, c("station_name", "lon", "lat")], by = "station_name")
+
+# Convert return_levels_all_with_coords to sf object
+return_levels_sf_block <- st_as_sf(return_levels_with_coords_block, coords = c("lon", "lat"), crs = 4326)
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf_block) +
+  tm_dots(col = "return_100yr", size = 1, alpha = 0.5, title = "Return Level (100yr) Using Block Maxima") +
+  tm_style("gray")
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf_block) +
+  tm_dots(col = "return_20yr", size = 1, alpha = 0.5, title = "Return Level (20yr) Using Block Maxima") +
+  tm_style("gray")
 ```
