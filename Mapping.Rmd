@@ -277,8 +277,7 @@ tm_shape(ireland) +
 # Define function to estimate return levels for a given station
 estimate_return_levels_block<- function(station_data_block) {
   # Fit GEV distribution to block maxima
-  gev_block_fit <- fevd(station_data_block$surge_daily_max, method = "MLE")
-  
+  gev_block_fit <- fevd(station_data_block$surge_annual_max, method = "MLE") ### UPDATE NC, APR 16
   # Estimate return levels
   return_levels_block <- return.level(gev_block_fit, return.period = c(20, 100), do.ci = TRUE)
   
@@ -293,7 +292,7 @@ return_levels_all_block <- data.frame(station_name = character(),
 # Loop through each station in the subset
 for (station_name in unique(data$station_name)) {
   # Subset data for the current station
-  station_data_block <- data[data$station_name == station_name, ]
+  station_data_block <- data[data$station_name == station_name, ] %>% group_by(year) %>% summarise(surge_annual_max = max(surge_daily_max)) ### UPDATE NC, APR 16
   
   # Estimate return levels for the current station
   return_levels_block <- estimate_return_levels_block(station_data_block)
@@ -311,6 +310,7 @@ return_levels_all_block <- return_levels_all_block[-1, ]
 print(return_levels_all_block)
 
 ```
+
 ```{r}
 data_unique <- distinct(data, station_name, lon, lat)
 
@@ -330,11 +330,12 @@ tm_shape(ireland) +
 tm_shape(ireland) +
   tm_borders() +
   tm_shape(return_levels_sf_block) +
-  tm_dots(col = "return_20yr", size = 1, alpha = 0.5, title = "Return Level (20yr) Using Block Maxima") +
+  tm_dots(col = "return_20yr", size = 0.5, alpha = 0.5, title = "Return Level (20yr) Using Block Maxima") +
   tm_style("gray")
 ```
 
 CLUSTERING ANALYSIS
+
 ```{r}
 #ELBOW METHOD
 # Calculate within-cluster sum of squares for different values of k
