@@ -187,7 +187,6 @@ ci(gev_block_fit, type = "parameter")
 
 
 ```{r}
-
 station_subset <- subset(data, station_name %in% levels(data$station_name)[1:5])
 
 # Define function to estimate return levels for a given station
@@ -202,7 +201,7 @@ estimate_return_levels <- function(station_data) {
   gev_fit <- fevd(station_data_above_threshold$surge_daily_max, threshold = threshold, method = "MLE")
   
   # Estimate return levels
-  return_levels <- return.level(gev_fit, return.period = c(20, 100), do.ci = TRUE)
+  return_levels <- return.level(gev_fit, return.period = c(2, 5, 20, 100), do.ci = TRUE)
   
   # Return the return levels
   return(return_levels)
@@ -210,7 +209,8 @@ estimate_return_levels <- function(station_data) {
 
 # Create an empty dataframe to store return level estimates for all stations
 return_levels_all <- data.frame(station_name = character(),
-                                 return_20yr = numeric(), return_100yr = numeric(),
+                                 return_2yr = numeric(),return_5yr = numeric(),
+                                return_20yr = numeric(), return_100yr = numeric(),
                                  stringsAsFactors = FALSE)
 
 # Loop through each station in the subset
@@ -223,16 +223,20 @@ for (station_name in unique(data$station_name)) {
   
   # Add return levels to the dataframe
   return_levels_all <- rbind(return_levels_all, data.frame(station_name = station_name,
-                                                          return_20yr = return_levels[1],
-                                                          return_100yr = return_levels[2]))
+                                                          return_2yr = return_levels[1],
+                                                          return_5yr= return_levels[2],
+                                                          return_20yr = return_levels[3],
+                                                          return_100yr = return_levels[4]))
 }
 
-# Remove the first row (initialized with empty strings)
-return_levels_all <- return_levels_all[-1, ]
 
 # Print the dataframe
 print(return_levels_all)
 
+
+```
+
+```{r}
 
 
 ```
@@ -386,7 +390,165 @@ mean_silhouette
 #K-Means Clustering gives a 0.39 Silhouette Score on the scale -1 to 1, indicating good clustering accuracy.
 ```
 
+
 ```{r}
+# Create an empty dataframe to store results
+exceedance_counts <- data.frame(station_name = character(), exceedances_5yr = numeric(), stringsAsFactors = FALSE)
+
+# Loop through each station name
+for (station_name in unique(data$station_name)) {
+  # Filter the original data for the current station
+  station_data <- data[data$station_name == station_name, ]
+  
+  # Extract the 5-year return level for the current station
+  return_5yr <- return_levels_all$return_5yr[return_levels_all$station_name == station_name]
+  
+  # Count the number of exceedances for the current station
+  exceedances <- sum(station_data$surge_daily_max > return_5yr)
+  
+  # Add station name and exceedance count to the dataframe
+  exceedance_counts <- rbind(exceedance_counts, data.frame(station_name = station_name, exceedances_5yr = exceedances))
+}
+
+# Print the dataframe
+print(exceedance_counts)
+
+#this is supposed to be a 1 in 5 year event, but there are consistently hundreds of 1 in 5 year events according to this 
 ```
 ```{r}
+library(ggplot2)
+
+# Create an empty dataframe to store results
+exceedance_counts <- data.frame(year = numeric(), exceedances_5yr = numeric(), stringsAsFactors = FALSE)
+
+# Filter the original data for the specific location (e.g., station 749)
+station_data <- data[data$station_name == "749", ]
+
+# Extract the 5-year return level for the specific location
+return_5yr <- return_levels_all$return_5yr[return_levels_all$station_name == "749"]
+
+# Loop through each year
+for (year in unique(station_data$year)) {
+  # Count the number of exceedances for the current year
+  exceedances <- sum(station_data$year == year & station_data$surge_daily_max > return_5yr)
+  
+  # Add year and exceedance count to the dataframe
+  exceedance_counts <- rbind(exceedance_counts, data.frame(year = year, exceedances_5yr = exceedances))
+}
+
+# Plot the time series of exceedances over the years
+ggplot(exceedance_counts, aes(x = year, y = exceedances_5yr)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Exceedances Above 5-Year Return Level Per Year (Station 749)",
+       x = "Year", y = "Exceedances")
+
+```
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Define the stations you want to include in the heatmap
+stations <- unique(data$station_name)
+
+# Create a dataframe to store station information
+station_info <- data %>%
+  distinct(station_name, lon, lat) %>%
+  mutate(coast = case_when(
+    lon < -7 & lat > 54 ~ "North West",
+    lon < -9 & lat <= 54 ~ "South West",
+    lon > -6.5 & lat > 52.3 ~ "Central East",
+    TRUE ~ "South East"
+  )) %>%
+  arrange(coast, lat)  # Order stations by coast and latitude
+
+
+# Group stations by coast and assign numeric values to each station within its coast group
+station_info <- station_info %>%
+  group_by(coast) %>%
+  mutate(station_order = row_number()) %>%
+  ungroup()
+
+# Create an empty data frame to store the exceedance counts for each station and year
+exceedance_df <- expand.grid(Station = stations, Year = as.integer(unique(data$year)))
+
+# Check if exceedance_df is empty and initialize it with one row if empty
+if (nrow(exceedance_df) == 0) {
+  exceedance_df <- data.frame(Station = character(), Year = integer(), Exceedances = integer())
+}
+
+# Initialize all exceedances to 0
+exceedance_df$Exceedances <- 0  
+
+# Loop through each station
+for (station in stations) {
+  # Filter the original data for the current station
+  station_data <- data[data$station_name == station, ]
+  
+  # Extract the 5-year return level for the current station
+  return_5yr <- return_levels_all$return_5yr[return_levels_all$station_name == station]
+  
+  # Loop through each year
+  for (year in unique(data$year)) {
+    # Count the number of exceedances for the current year and station
+    exceedances <- sum(station_data$year == year & station_data$surge_daily_max > return_5yr)
+    
+    # Assign the exceedance count to the corresponding row in the data frame
+    exceedance_df$Exceedances[exceedance_df$Station == station & exceedance_df$Year == year] <- exceedances
+  }
+}
+
+
+# Plot the heatmap with adjusted x-axis labels
+heatmap_plot <- ggplot(exceedance_df, aes(x = Year, y = Station, fill = Exceedances)) +
+  geom_tile() +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(title = "Exceedances Above 5-Year Return Level Heatmap",
+       x = "Year", y = "Station", fill = "Exceedances") +
+  theme(axis.text.y = element_text(size = 5),  # Adjust y-axis text size
+        axis.text.x = element_text(angle = 45, size = 7),  # Rotate and adjust x-axis text size
+        plot.title = element_text(size = 12),  # Adjust title size
+        plot.margin = margin(t = 2, r = 2, b = 2, l = 2, unit = "cm")) +  # Adjust plot margins
+  scale_y_discrete(limits = station_info$station_name, labels = station_info$coast) +
+  scale_x_continuous(breaks = unique(exceedance_df$Year)) +  # Group and order stations by coast
+  theme(plot.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
+        panel.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
+        plot.margin = margin(0.1, 0.1, 0.1, 0.1, "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"))
+
+# Print the plot
+print(heatmap_plot)
+
+```
+
+```{r}
+# Filter points for each group
+north_west_points <- unique_coords_sf %>%
+  filter(st_coordinates(geometry)[, "X"] < -7 & st_coordinates(geometry)[, "Y"] > 54)
+
+south_west_points <- unique_coords_sf %>%
+  filter(st_coordinates(geometry)[, "X"] < -9 & st_coordinates(geometry)[, "Y"] <= 54)
+
+central_east_points <- unique_coords_sf %>%
+  filter(st_coordinates(geometry)[, "X"] > -6.5 & st_coordinates(geometry)[, "Y"] > 52.3)
+
+south_east_points <- unique_coords_sf %>%
+  filter(st_coordinates(geometry)[, "X"] >= -9 & st_coordinates(geometry)[, "Y"] <= 52.3)
+
+# Plot the map for each group
+tm_shape(ireland) +  
+  tm_borders() +      
+  tm_shape(north_west_points) +  
+  tm_dots(col = "blue", size = 0.5, title = "North West Points") +
+ 
+  tm_shape(south_west_points) +  
+  tm_dots(col = "red", size = 0.5, title = "South West Points") +
+
+  tm_shape(central_east_points) +  
+  tm_dots(col = "green", size = 0.5, title = "Central East Points")+
+
+  tm_shape(south_east_points) +  
+  tm_dots(col = "orange", size = 0.5, title = "South East Points")
+
 ```
