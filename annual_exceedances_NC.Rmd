@@ -17,7 +17,7 @@ data <- readRDS("gtsr_daily_max_1979_2014.rds")
 
 ## Dunlaoghaire (DL) Example 
 
-Look at Dun Laoghaire first as an example. 
+Look at Dun Laoghaire first as an example of calculating extremes.  
 
 ```{r}
 dun_laoghaire <- data %>% filter(station_name == "795") #795 dun laoghaire
