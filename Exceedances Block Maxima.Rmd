@@ -1,0 +1,198 @@
+---
+title: "Block Maxima Annual Return Level Exceedances"
+author: "Samuel McDonnell"
+date: "2024-04-25"
+output: html_document
+---
+
+```{r}
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(tmap)
+library(tidyr)
+
+data <- readRDS("gtsr_daily_max_1979_2014.rds")
+```
+
+## Dunlaoghaire (DL) Example 
+
+Look at Dun Laoghaire first as an example. 
+
+```{r}
+dun_laoghaire <- data %>% filter(station_name == "795") #795 dun laoghaire
+
+# Define custom ordering of months from July to June
+custom_order <- c("Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun")
+
+# Convert month integer to corresponding month abbreviation
+dun_laoghaire$month <- factor(month.abb[dun_laoghaire$month], levels = custom_order)
+
+# Time series plot
+ggplot(dun_laoghaire, aes(x = as.Date(date_time), y = surge_daily_max)) +
+  geom_line() +
+  labs(title = "Sea Level Surge Daily Maximum Values Over Time",
+       x = "Date", y = "Surge Daily Max")
+
+```
+
+
+From below the 5yr return level for DL is 0.8711146. This can be used as a cross check for the code when you run for all stations. 
+
+```{r}
+library(extRemes)
+
+dun_laoghaire_annual_max <- dun_laoghaire %>% group_by(year) %>% summarise(annual_max = max(surge_daily_max))
+
+# Fit GEV distribution to block maxima
+gev_block_fit <- fevd(dun_laoghaire_annual_max$annual_max, method = "MLE")
+
+print("Block Maxima Method (GEV/GP):")
+print(summary(gev_block_fit))
+
+plot(gev_block_fit) ## plot block max fit (looks better, fits inside 
+
+return.level(gev_block_fit, return.period = c(5,20, 100), do.ci = TRUE)
+```
+## Extremes analysis for all stations
+
+I've modified this code a bit. There was an issue with station names not matching with the correct output. I suggest using this structure moving forward.  All looks good now. Note: this code will output messages from the summarise function - just ignore those.
+
+```{r, messages = FALSE}
+#BLOCK MAXIMA APPROACH
+
+# Define function to estimate return levels for a given station
+estimate_return_levels_block<- function(station_data_block) {
+  # Fit GEV distribution to block maxima
+  gev_block_fit <- fevd(station_data_block$surge_annual_max, method = "MLE") ### UPDATE NC, APR 16
+  # Estimate return levels
+  return_levels_block <- return.level(gev_block_fit, return.period = c(5,20, 100), do.ci = TRUE)
+  
+  # Return the return levels
+  return(return_levels_block)
+}
+
+# Create an empty dataframe to store return level estimates for all stations
+return_levels_all_block <- data.frame(station_name = character(),
+                                 return_5yr = numeric(),
+                                 return_20yr = numeric(), 
+                                 return_100yr = numeric(),
+                                 stringsAsFactors = FALSE)
+
+# Loop through each station in the subset (i = 16 for DunL)
+for (i in 1:nlevels(data$station_name)) {
+  # Subset data for the current station
+  station_data_block <- data %>% filter(station_name == levels(data$station_name)[i]) %>% group_by(station_name, year) %>% summarise(surge_annual_max = max(surge_daily_max)) %>% ungroup() ### UPDATE NC, APR 16
+  
+  # Estimate return levels for the current station
+  return_levels_block <- estimate_return_levels_block(station_data_block)
+  
+  # Add return levels to the dataframe
+  return_levels_all_block <- rbind(return_levels_all_block,
+                                   data.frame(station_name = station_data_block$station_name %>% unique(),
+                                              return_5yr = return_levels_block[1],
+                                              return_20yr = return_levels_block[2],
+                                              return_100yr = return_levels_block[3]))
+}
+
+# Print the dataframe
+print(return_levels_all_block %>% filter(station_name == "795")) # check DL :) 
+
+```
+
+## Map the return levels 
+
+```{r}
+
+#Load spatial data
+ireland <- st_read("IRL_adm0.shp")
+
+
+data_unique <- distinct(data, station_name, lon, lat)
+
+## switched to use inner join to join the datasets
+return_levels_with_coords_block <- inner_join(return_levels_all_block, data_unique, by = "station_name")
+
+# Convert return_levels_all_with_coords to sf object
+return_levels_sf_block <- st_as_sf(return_levels_with_coords_block, coords = c("lon", "lat"), crs = 4326)
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf_block) +
+  tm_dots(col = "return_5yr", size = 1, alpha = 0.5, title = "Return Level (5yr) Using Block Maxima") +
+  tm_style("gray")
+
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf_block) +
+  tm_dots(col = "return_20yr", size = 1, alpha = 0.5, title = "Return Level (20yr) Using Block Maxima") +
+  tm_style("gray")
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf_block) +
+  tm_dots(col = "return_100yr", size = 0.5, alpha = 0.5, title = "Return Level (100yr) Using Block Maxima") +
+  tm_style("gray")
+```
+
+## Annual exceedances of 5yr return level
+
+I've simplified this code quite alot. Values look much more reasonable now. Now try your heat map again :) 
+
+```{r}
+
+exceedance_dat <-inner_join(data %>% select(station_name, year, month, day, surge_daily_max), return_levels_with_coords_block, by = "station_name")
+
+annual_exceedance_counts <- exceedance_dat %>% 
+                              group_by(station_name, year) %>% 
+                              summarise(exceedance_5yr = sum(surge_daily_max > return_5yr),
+                                        exceedance_20yr = sum(surge_daily_max > return_20yr)) %>% 
+                              ungroup()
+
+## plot for DL 
+ggplot(annual_exceedance_counts %>% filter(station_name == "795"), aes(x = year, y = exceedance_5yr)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Exceedances Above 5-Year Return Level Per Year",
+       x = "Year", y = "Exceedances")
+
+```
+
+```{r}
+exceedance_dat  <- exceedance_dat %>%
+  distinct(station_name, lon, lat) %>%
+  mutate(coast = case_when(
+    lon < -7 & lat > 54 ~ "North West",
+    lon < -9 & lat <= 54 ~ "South West",
+    lon > -6.5 & lat > 52.3 ~ "Central East",
+    TRUE ~ "South East"
+  )) %>%
+  arrange(coast, lat)  # Order stations by coast and latitude
+
+
+# Plot the heatmap with adjusted x-axis labels
+heatmap_plot <- ggplot(annual_exceedance_counts, aes(x = year, y = station_name, fill = exceedance_5yr)) +
+  geom_tile() +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(title = "Exceedances Above 5-Year Return Level Heatmap",
+       x = "Year", y = "Station", fill = "Exceedances") +
+  theme(axis.text.y = element_text(size =1),  # Adjust y-axis text size
+        axis.text.x = element_text(angle = 45, size = 7),  # Rotate and adjust x-axis text size
+        plot.title = element_text(size = 12),  # Adjust title size
+        plot.margin = margin(t = 2, r = 2, b = 2, l = 2, unit = "cm")) +  # Adjust plot margins
+  scale_y_discrete(limits = exceedance_dat$station_name, labels = exceedance_dat$coast) +
+  scale_x_continuous(breaks = unique(annual_exceedance_counts$year)) +  # Group and order stations by coast
+  theme(plot.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
+        panel.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
+        plot.margin = margin(0.1, 0.1, 0.1, 0.1, "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"))
+
+# Print the plot
+print(heatmap_plot)
+```
+
