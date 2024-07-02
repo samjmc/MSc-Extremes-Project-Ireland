@@ -1,0 +1,112 @@
+---
+title: "Dun Laoghaire Example"
+author: "Samuel McDonnell"
+date: "2024-05-02"
+output: html_document
+---
+
+```{r}
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(tmap)
+library(tidyr)
+
+data <- readRDS("gtsr_daily_max_1979_2014.rds")
+```
+
+## Dunlaoghaire (DL) Example 
+
+Look at Dun Laoghaire first as an example. 
+
+```{r}
+
+set.seed(123)
+#MAPPING THE LON AND LAT POINTS
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(tmap)
+library(tidyr)
+
+#Load spatial data
+ireland <- st_read("IRL_adm0.shp")
+
+#UNIQUE COORDS FOR LAT AND LON
+unique_coords <- unique(data[, c("lon", "lat")])
+
+#CONVERT TO Sf object
+unique_coords_sf <- st_as_sf(unique_coords, coords = c("lon", "lat"), crs = 4326)
+
+#PLOT
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(unique_coords_sf) +
+  tm_dots(col = "blue", size = 0.05, title = "Unique Coordinates") +
+  tm_style("gray")
+```
+```{r}
+dun_laoghaire<- subset(data, station_name == "795") #795 dun laoghaire
+
+# Convert the selected point to an sf object
+dun_laoghaire_sf <- st_as_sf(dun_laoghaire, coords = c("lon", "lat"), crs = 4326)
+
+# Plot the map
+tm_shape(ireland) +  
+  tm_borders() +      
+  tm_shape(dun_laoghaire_sf) +  
+  tm_dots(col = "blue", size = 0.5, title = "dun_laoghaire Observation") + 
+  tm_style("gray")   
+```
+
+```{r}
+dun_laoghaire <- data %>% filter(station_name == "795") #795 dun laoghaire
+
+# Define custom ordering of months from July to June
+custom_order <- c("Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun")
+
+# Convert month integer to corresponding month abbreviation
+dun_laoghaire$month <- factor(month.abb[dun_laoghaire$month], levels = custom_order)
+
+# Time series plot
+ggplot(dun_laoghaire, aes(x = as.Date(date_time), y = surge_daily_max)) +
+  geom_line() +
+  labs(title = "Sea Level Surge Daily Maximum Values Over Time",
+       x = "Date", y = "Surge Daily Max")
+
+```
+
+
+```{r}
+# Define custom ordering of months from July to June
+custom_order <- c("Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun")
+
+# Convert month integer to corresponding month abbreviation
+dun_laoghaire$month <- factor(month.abb[dun_laoghaire$month], levels = custom_order)
+
+# Calculate monthly averages
+monthly_avg <- dun_laoghaire %>%
+  group_by(year, month) %>%
+  summarize(avg_surge_daily_max = mean(surge_daily_max), na.rm = TRUE) %>% 
+  ungroup() %>% 
+  mutate(time_index = 1:n())
+
+annual_avg <- dun_laoghaire %>%
+  group_by(year) %>%
+  summarize(avg_surge_daily_max = mean(surge_daily_max), na.rm = TRUE) %>% 
+  ungroup() %>% 
+  mutate(time_index = 1:n())
+
+
+# Plot monthly averages with custom ordering
+ggplot(monthly_avg, aes(x = time_index, y = avg_surge_daily_max, group = 1)) +
+  geom_line() +
+  labs(title = "Monthly Averages of Sea Level Surge Daily Maximum Values (Dun Laoghaire)",
+       x = "Month", y = "Avg Surge Daily Max")
+
+
+ggplot(annual_avg, aes(x = year, y = avg_surge_daily_max, group = 1)) +
+  geom_line() +
+  labs(title = "Annual Averages of Sea Level Surge Daily Maximum Values (Dun Laoghaire)",
+       x = "Year", y = "Avg Surge Daily Max")
+```
