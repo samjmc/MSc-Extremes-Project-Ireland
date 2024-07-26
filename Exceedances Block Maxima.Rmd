@@ -26,7 +26,7 @@ From below the 5yr return level for DL is 0.937447. This can be used as a cross 
 
 ```{r}
 library(extRemes)
-
+dun_laoghaire <- data %>% filter(station_name == "795") #795 dun laoghaire
 dun_laoghaire_annual_max <- dun_laoghaire %>% group_by(year) %>% summarise(annual_max = max(surge_daily_max))
 
 # Fit GEV distribution to block maxima
@@ -37,7 +37,7 @@ print(summary(gev_block_fit))
 
 plot(gev_block_fit) ## plot block max fit (looks better, fits inside 
 
-return.level(gev_block_fit, return.period = c(5,20, 100))
+return.level(gev_block_fit, return.period = c(2,5,20, 100), do.ci=TRUE)
 ```
 ## Extremes analysis for all stations
 
@@ -49,7 +49,7 @@ estimate_return_levels_block<- function(station_data_block) {
   # Fit GEV distribution to block maxima
   gev_block_fit <- fevd(station_data_block$surge_annual_max, method = "MLE")
   # Estimate return levels
-  return_levels_block <- return.level(gev_block_fit, return.period = c(5,20, 100))
+  return_levels_block <- return.level(gev_block_fit, return.period = c(2,5,20, 100))
   
   # Return the return levels
   return(return_levels_block)
@@ -57,6 +57,7 @@ estimate_return_levels_block<- function(station_data_block) {
 
 # Create an empty dataframe to store return level estimates for all stations
 return_levels_all_block <- data.frame(station_name = character(),
+                                 return_2yr = numeric(),
                                  return_5yr = numeric(),
                                  return_20yr = numeric(), 
                                  return_100yr = numeric(),
@@ -73,20 +74,24 @@ for (i in 1:nlevels(data$station_name)) {
   # Add return levels to the dataframe
   return_levels_all_block <- rbind(return_levels_all_block,
                                    data.frame(station_name = station_data_block$station_name %>% unique(),
-                                              return_5yr = return_levels_block[1],
-                                              return_20yr = return_levels_block[2],
-                                              return_100yr = return_levels_block[3]))
+                                              return_2yr = return_levels_block[1],
+                                              return_5yr = return_levels_block[2],
+                                              return_20yr = return_levels_block[3],
+                                              return_100yr = return_levels_block[4]))
 }
 
 # Print the dataframe
 print(return_levels_all_block %>% filter(station_name == "795"))  
 
 ```
+
 ```{r}
 # Define the GEV parameters
 location <- 0.7659
 scale <- 0.1167
 shape <- -0.0274
+
+
 
 # Create a sequence of x values over which to plot the GEV distribution
 x_values <- seq(-1, 2, length.out = 1000)
@@ -98,8 +103,7 @@ plot(x_values, gev_pdf, type = "l", lwd = 2, col = "blue",
      main = "Generalized Extreme Value (GEV) Distribution",
      xlab = "Value", ylab = "Density")
 
-# Add grid lines for better visualization
-grid()
+
 
 ```
 
@@ -118,6 +122,13 @@ return_levels_with_coords_block <- inner_join(return_levels_all_block, data_uniq
 
 # Convert return_levels_all_with_coords to sf object
 return_levels_sf_block <- st_as_sf(return_levels_with_coords_block, coords = c("lon", "lat"), crs = 4326)
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf_block) +
+  tm_dots(col = "return_2yr", size = 1.5, alpha = 0.5, title = "Return Level (2yr) Using Block Maxima") +
+  tm_style("gray")
 
 # Plot map of Ireland with return levels represented by colors
 tm_shape(ireland) +
@@ -149,7 +160,7 @@ library(cluster)
 clustering_data <- st_coordinates(return_levels_sf_block)
 
 # Create a data frame with return levels and extracted coordinates
-clustering_data <- data.frame(return_5yr = return_levels_sf_block$return_5yr,
+clustering_data <- data.frame(
                               lon = clustering_data[, "X"],
                               lat = clustering_data[, "Y"])
 
@@ -157,7 +168,7 @@ clustering_data <- data.frame(return_5yr = return_levels_sf_block$return_5yr,
 scaled_data <- scale(clustering_data)
 
 # Perform K-means clustering
-k <-   # Number of clusters
+k <- 4  # Number of clusters
 set.seed(123)  # Set seed for reproducibility
 kmeans_result <- kmeans(scaled_data, centers = k)
 
@@ -165,11 +176,11 @@ kmeans_result <- kmeans(scaled_data, centers = k)
 cluster_names <- c("West", "South", "North", "East")
 
 # Add cluster names to the original data
-return_levels_with_coords <- return_levels_sf_block %>%
+return_levels_with_coords_block <- return_levels_sf_block %>%
   mutate(cluster = factor(kmeans_result$cluster, labels = cluster_names))
 
 # Convert to sf object with clusters included
-return_levels_sf_clusters <- st_as_sf(return_levels_with_coords, coords = c("lon", "lat"), crs = 4326)
+return_levels_sf_clusters <- st_as_sf(return_levels_with_coords_block, coords = c("lon", "lat"), crs = 4326)
 
 # Custom colors for clusters
 custom_colors <- c("white", "orange", "red", "yellow")
@@ -178,7 +189,7 @@ custom_colors <- c("white", "orange", "red", "yellow")
 tm_shape(ireland) +
   tm_borders() +
   tm_shape(return_levels_sf_clusters) +
-  tm_dots(col = "cluster", palette = custom_colors, size = 1, alpha = 0.5, title = "Return Level Clusters (5, Block Maxima Method)", title.size = 0.5) + 
+  tm_dots(col = "cluster", palette = custom_colors, size = 1, alpha = 0.5, title = "Visual Coastal Groups", title.size = 0.5) + 
   tm_style("gray")
 
 ```
@@ -188,9 +199,9 @@ I've simplified this code quite alot. Values look much more reasonable now. Now 
 
 ```{r}
 
-exceedance_dat <-inner_join(data %>% select(station_name, year, month, day, surge_daily_max), return_levels_with_coords_block, by = "station_name")
+exceedance_data_block <-inner_join(data %>% select(station_name, year, month, day, surge_daily_max), return_levels_with_coords_block, by = "station_name")
 
-annual_exceedance_counts <- exceedance_dat %>% 
+annual_exceedance_counts <- exceedance_data_block %>% 
                               group_by(station_name, year) %>% 
                               summarise(exceedance_5yr = sum(surge_daily_max > return_5yr),
                                         exceedance_20yr = sum(surge_daily_max > return_20yr)) %>% 
@@ -206,17 +217,33 @@ ggplot(annual_exceedance_counts %>% filter(station_name == "795"), aes(x = year,
 
 
 ```{r}
-# Merge exceedance data with cluster information
-exceedance_dat_with_clusters <- inner_join(exceedance_dat, 
-                                           return_levels_with_coords %>% select(station_name, cluster), 
-                                           by = "station_name")
+##FOR 20-YEAR EXCEEDANCES
+
 # Calculate total exceedances for each station
-station_exceedances <- exceedance_dat_with_clusters %>%
+station_exceedances_block_20yr <- exceedance_data_block %>%
+  group_by(cluster, station_name) %>%
+  summarise(total_exceedance_20yr = sum(surge_daily_max > return_20yr, na.rm = TRUE)) %>%
+  ungroup()
+# Summarize exceedances by cluster
+cluster_exceedance_summary_20yr <- station_exceedances_block_20yr %>%
+  group_by(cluster) %>%
+  summarise(total_exceedance_20yr = sum(total_exceedance_20yr),
+            station_count = n_distinct(station_name),
+            avg_exceedance_20yr_per_station = total_exceedance_20yr / station_count )   %>%
+  ungroup()
+
+# Print the summary
+print(cluster_exceedance_summary_20yr)
+
+##5 YEAR EXCEEDANCES
+
+# Calculate total exceedances for each station
+station_exceedances_block_5yr <- exceedance_data_block %>%
   group_by(cluster, station_name) %>%
   summarise(total_exceedance_5yr = sum(surge_daily_max > return_5yr, na.rm = TRUE)) %>%
   ungroup()
 # Summarize exceedances by cluster
-cluster_exceedance_summary <- station_exceedances %>%
+cluster_exceedance_summary_5yr <- station_exceedances_block_5yr  %>%
   group_by(cluster) %>%
   summarise(total_exceedance_5yr = sum(total_exceedance_5yr),
             station_count = n_distinct(station_name),
@@ -224,23 +251,34 @@ cluster_exceedance_summary <- station_exceedances %>%
   ungroup()
 
 # Print the summary
-print(cluster_exceedance_summary)
+print(cluster_exceedance_summary_5yr)
 
+##FOR 2 YEAR EXCEEDANCES
+
+# Calculate total exceedances for each station
+station_exceedances_block_2yr <- exceedance_data_block %>%
+  group_by(cluster, station_name) %>%
+  summarise(total_exceedance_2yr = sum(surge_daily_max > return_2yr, na.rm = TRUE)) %>%
+  ungroup()
+# Summarize exceedances by cluster
+cluster_exceedance_summary_2yr <- station_exceedances_block_2yr %>%
+  group_by(cluster) %>%
+  summarise(total_exceedance_2yr = sum(total_exceedance_2yr),
+            station_count = n_distinct(station_name),
+            avg_exceedance_2yr_per_station = total_exceedance_2yr / station_count )   %>%
+  ungroup()
+
+# Print the summary
+print(cluster_exceedance_summary_2yr)
 ```
 
 ```{r}
 library(dplyr)
 library(ggplot2)
 
-# Step 1: Merge exceedance data with cluster information
-exceedance_dat_with_clusters <- inner_join(
-  exceedance_dat, 
-  return_levels_with_coords %>% select(station_name, cluster), 
-  by = "station_name"
-)
 
-# Step 2: Summarize total exceedances above the 5-year return level for each station and year
-annual_exceedance_counts <- exceedance_dat_with_clusters %>%
+# Step 1: Summarize total exceedances above the 5-year return level for each station and year
+annual_exceedance_counts <- exceedance_data_block %>%
   group_by(cluster, station_name, year) %>%
   summarise(exceedance_5yr = sum(surge_daily_max > return_5yr, na.rm = TRUE)) %>%
   ungroup()
@@ -248,7 +286,7 @@ annual_exceedance_counts <- exceedance_dat_with_clusters %>%
 # Check the summarized data
 print(annual_exceedance_counts)
 
-# Step 3: Order stations by cluster and station name
+# Step 2: Order stations by cluster and station name
 station_order <- annual_exceedance_counts %>%
   arrange(cluster, station_name) %>%
   pull(station_name) %>%
@@ -257,11 +295,11 @@ station_order <- annual_exceedance_counts %>%
 # Convert station_name to factor with the specified order
 annual_exceedance_counts$station_name <- factor(annual_exceedance_counts$station_name, levels = station_order)
 
-# Step 4: Create the heatmap plot including every year label and smaller facet labels
+# Step 3: Create the heatmap plot including every year label and smaller facet labels
 heatmap_plot <- ggplot(annual_exceedance_counts, aes(x = year, y = station_name, fill = exceedance_5yr)) +
   geom_tile() +
   scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Exceedances") +
-  labs(title = "Exceedances Above 5-Year Return Level Heatmap",
+  labs(title = "Exceedances Above 5-Year Return Level Heatmap (Block Maxima)",
        x = "Year", y = "Station") +
   theme(
     axis.text.y = element_text(size = 0),  # Adjust y-axis text size
@@ -277,6 +315,127 @@ heatmap_plot <- ggplot(annual_exceedance_counts, aes(x = year, y = station_name,
 
 # Print the plot
 print(heatmap_plot)
+
+
+##FOR 2YR HEATMAP
+# Step 1: Summarize total exceedances above the 2-year return level for each station and year
+annual_exceedance_counts_2yr_block <- exceedance_data_block %>%
+  group_by(cluster, station_name, year) %>%
+  summarise(exceedance_2yr = sum(surge_daily_max > return_2yr, na.rm = TRUE)) %>%
+  ungroup()
+
+# Check the summarized data
+print(annual_exceedance_counts_2yr_block)
+
+# Step 2: Order stations by cluster and station name
+station_order <- annual_exceedance_counts_2yr_block %>%
+  arrange(cluster, station_name) %>%
+  pull(station_name) %>%
+  unique()
+
+# Convert station_name to factor with the specified order
+annual_exceedance_counts_2yr_block$station_name <- factor(annual_exceedance_counts_2yr_block$station_name, levels = station_order)
+
+# Step 3: Create the heatmap plot including every year label and smaller facet labels
+heatmap_plot_2yr_block <- ggplot(annual_exceedance_counts_2yr_block, aes(x = year, y = station_name, fill = exceedance_2yr)) +
+  geom_tile() +
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Exceedances") +
+  labs(title = "Exceedances Above 2-Year Return Level Heatmap (Block Maxima)",
+       x = "Year", y = "Station") +
+  theme(
+    axis.text.y = element_text(size = 0),  # Adjust y-axis text size
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7),  # Rotate and adjust x-axis text size
+    plot.title = element_text(size = 14, face = "bold"),  # Adjust title size and style
+    legend.position = "bottom",
+    plot.margin = margin(t = 10, r = 10, b = 10, l = 10, unit = "pt"),  # Adjust plot margins
+    strip.text.y = element_text(size = 8),  # Adjust facet label text size
+    strip.background = element_rect(color = "black", fill = "lightgrey")  # Optional: Change facet background
+  ) +
+  scale_x_continuous(breaks = seq(min(annual_exceedance_counts_2yr_block$year), max(annual_exceedance_counts_2yr_block$year), by = 1)) +  # Label every year
+  facet_grid(cluster ~ ., scales = "free_y", space = "free_y")  # Separate clusters into facets
+
+# Print the plot
+print(heatmap_plot_2yr_block)
+
+#########################################FOR 20YR HEATMAP
+# Step 1: Summarize total exceedances above the 20-year return level for each station and year
+annual_exceedance_counts_20yr_block <- exceedance_data_block %>%
+  group_by(cluster, station_name, year) %>%
+  summarise(exceedance_20yr = sum(surge_daily_max > return_20yr, na.rm = TRUE)) %>%
+  ungroup()
+
+# Check the summarized data
+print(annual_exceedance_counts_20yr_block)
+
+# Step 2: Order stations by cluster and station name
+station_order <- annual_exceedance_counts_20yr_block %>%
+  arrange(cluster, station_name) %>%
+  pull(station_name) %>%
+  unique()
+
+# Convert station_name to factor with the specified order
+annual_exceedance_counts_20yr_block$station_name <- factor(annual_exceedance_counts_20yr_block$station_name, levels = station_order)
+
+# Step 3: Create the heatmap plot including every year label and smaller facet labels
+heatmap_plot_20yr_block <- ggplot(annual_exceedance_counts_20yr_block, aes(x = year, y = station_name, fill = exceedance_20yr)) +
+  geom_tile() +
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Exceedances") +
+  labs(title = "Exceedances Above 20-Year Return Level Heatmap (Block Maxima)",
+       x = "Year", y = "Station") +
+  theme(
+    axis.text.y = element_text(size = 0),  # Adjust y-axis text size
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7),  # Rotate and adjust x-axis text size
+    plot.title = element_text(size = 14, face = "bold"),  # Adjust title size and style
+    legend.position = "bottom",
+    plot.margin = margin(t = 10, r = 10, b = 10, l = 10, unit = "pt"),  # Adjust plot margins
+    strip.text.y = element_text(size = 8),  # Adjust facet label text size
+    strip.background = element_rect(color = "black", fill = "lightgrey")  # Optional: Change facet background
+  ) +
+  scale_x_continuous(breaks = seq(min(annual_exceedance_counts_20yr_block$year), max(annual_exceedance_counts_20yr_block$year), by = 1)) +  # Label every year
+  facet_grid(cluster ~ ., scales = "free_y", space = "free_y")  # Separate clusters into facets
+
+# Print the plot
+print(heatmap_plot_20yr_block)
+
+#########################################FOR 100YR HEATMAP
+# Step 1: Summarize total exceedances above the 100-year return level for each station and year
+annual_exceedance_counts_100yr_block <- exceedance_data_block %>%
+  group_by(cluster, station_name, year) %>%
+  summarise(exceedance_100yr = sum(surge_daily_max > return_100yr, na.rm = TRUE)) %>%
+  ungroup()
+
+# Check the summarized data
+print(annual_exceedance_counts_100yr_block)
+
+# Step 2: Order stations by cluster and station name
+station_order <- annual_exceedance_counts_100yr_block %>%
+  arrange(cluster, station_name) %>%
+  pull(station_name) %>%
+  unique()
+
+# Convert station_name to factor with the specified order
+annual_exceedance_counts_100yr_block$station_name <- factor(annual_exceedance_counts_100yr_block$station_name, levels = station_order)
+
+# Step 3: Create the heatmap plot including every year label and smaller facet labels
+heatmap_plot_100yr_block <- ggplot(annual_exceedance_counts_100yr_block, aes(x = year, y = station_name, fill = exceedance_100yr)) +
+  geom_tile() +
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Exceedances") +
+  labs(title = "Exceedances Above 100-Year Return Level Heatmap (Block Maxima)",
+       x = "Year", y = "Station") +
+  theme(
+    axis.text.y = element_text(size = 0),  # Adjust y-axis text size
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7),  # Rotate and adjust x-axis text size
+    plot.title = element_text(size = 14, face = "bold"),  # Adjust title size and style
+    legend.position = "bottom",
+    plot.margin = margin(t = 10, r = 10, b = 10, l = 10, unit = "pt"),  # Adjust plot margins
+    strip.text.y = element_text(size = 8),  # Adjust facet label text size
+    strip.background = element_rect(color = "black", fill = "lightgrey")  # Optional: Change facet background
+  ) +
+  scale_x_continuous(breaks = seq(min(annual_exceedance_counts_100yr_block$year), max(annual_exceedance_counts_100yr_block$year), by = 1)) +  # Label every year
+  facet_grid(cluster ~ ., scales = "free_y", space = "free_y")  # Separate clusters into facets
+
+# Print the plot
+print(heatmap_plot_100yr_block)
 
 ```
 

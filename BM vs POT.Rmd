@@ -5,26 +5,50 @@ date: "2024-06-25"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+library(tmap)
+library(sf)
+
+# Assuming you have the data for both methods in these dataframes:
+# return_levels_all_block (BM method)
+# return_levels_all_pot (POT method)
+
+# Example structure:
+# return_levels_all_block: station_name, return_2yr, return_5yr, return_20yr, return_100yr
+# return_levels_all_pot: station_name, return_2yr, return_5yr, return_20yr, return_100yr
+
+# Load spatial data for Ireland
+ireland <- st_read("IRL_adm0.shp")
+
+# Example location data with longitude and latitude
+data_unique <- distinct(data, station_name, lon, lat)
+
+# Join BM and POT dataframes with location data
+bm_data <- inner_join(return_levels_all_block, data_unique, by = "station_name")
+pot_data <- inner_join(return_levels_all, data_unique, by = "station_name")
+
+# Join the BM and POT dataframes by station_name to compare
+comparison_data <- bm_data %>%
+  select(station_name, lon, lat, return_5yr_block = return_5yr) %>%
+  inner_join(pot_data %>% select(station_name, return_5yr_pot = return_5yr), by = "station_name")
+
+# Calculate the actual differences between BM and POT return levels
+comparison_data <- comparison_data %>%
+  mutate(difference = return_5yr_block - return_5yr_pot)
+
+# Convert to sf object
+comparison_sf <- st_as_sf(comparison_data, coords = c("lon", "lat"), crs = 4326)
+
+# Plot the actual differences on a map with a continuous color scale
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(comparison_sf) +
+  tm_dots(col = "difference", palette = "-RdYlBu", 
+          title = "Difference in 5-Year Return Levels (BM - POT)", size = 1, alpha = 0.9) +
+  tm_style("gray")
+
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
-```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
