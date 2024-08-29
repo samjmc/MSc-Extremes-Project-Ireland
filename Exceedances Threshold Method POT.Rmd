@@ -1,0 +1,427 @@
+---
+title: "Threshold Method Exceedances"
+author: "Samuel McDonnell"
+date: "2024-06-23"
+output: html_document
+---
+```{r, messages = FALSE}
+library(dplyr)
+library(extRemes)
+
+# Filter data for Dun Laoghaire station (795)
+dun_laoghaire <- data %>% filter(station_name == "795")
+
+# Calculate the 99th percentile threshold for Dun Laoghaire station
+overall_threshold_99 <- quantile(dun_laoghaire$surge_daily_max, 0.99, na.rm = TRUE)
+print(paste("Overall 99th percentile threshold for Dun Laoghaire (795):", overall_threshold_99))
+
+# Fit GPD distribution to exceedances above the threshold
+gpd_fit <- fevd(dun_laoghaire$surge_daily_max, threshold = overall_threshold_99, type = "GP", method = "MLE")
+
+# Print GPD fit summary
+print("GPD Fit Summary for Dun Laoghaire (795):")
+print(summary(gpd_fit))
+
+# Plot the GPD fit
+plot(gpd_fit, main = "GPD Fit for Dun Laoghaire's Overall 99th Percentile Exceedances")
+
+# Estimate return levels for specific return periods
+return_periods <- c(2, 5, 20, 100)
+return_levels_gpd <- return.level(gpd_fit, return.period = return_periods)
+
+# Print estimated return levels
+print("Estimated Return Levels for Dun Laoghaire (795):")
+print(data.frame(Return_Period = return_periods, Return_Level = return_levels_gpd))
+
+
+
+```
+
+```{r, messages = FALSE}
+##PLOTTING THE RESULTING DISTRIBUTION FOR DUN LAOGHAIRE 795
+# Define the GPD parameters
+scale_threshold <- 0.09503502
+shape_threshold <- -0.01044062
+
+# Create a sequence of x values over which to plot the GEV distribution
+x_values_gpd <- seq(-1, 2, length.out = 1000)
+
+gpd_pdf <- extRemes::devd(x_values_gpd,  scale = scale_threshold, shape = shape_threshold, type = "GP")
+
+# Plot the GEV distribution using base R plotting functions
+plot(x_values_gpd, gpd_pdf, type = "l", lwd = 2, col = "blue",
+     main = "Generalized Pareto (GPD) Distribution (Dun Laoghaire 795)",
+     xlab = "Value", ylab = "Density")
+
+# Add grid lines for better visualization
+grid()
+
+```
+
+```{r, messages = FALSE}
+library(extRemes)
+library(dplyr)
+
+# Function to calculate return levels for a station
+calculate_station_return_levels <- function(station_data) {
+  # Calculate 99th percentile threshold for the station
+  station_threshold <- quantile(station_data$surge_daily_max, 0.99, na.rm = TRUE)
+  
+  # Fit GPD distribution to exceedances above the threshold
+  gpd_fit <- fevd(station_data$surge_daily_max, threshold = station_threshold, type = "GP", method = "MLE")
+  
+  # Estimate return levels for specified return periods
+  return_levels <- return.level(gpd_fit, return.period = c(2, 5,20, 100))
+  
+  # Return a dataframe with station name and return levels
+  return(return_levels)
+}
+
+
+# Create an empty dataframe to store return level estimates for all stations
+return_levels_all <- data.frame(station_name = character(),
+                                return_2yr = numeric(),
+                                return_5yr = numeric(),
+                                return_20yr = numeric(), 
+                                return_100yr = numeric(),
+                                stringsAsFactors = FALSE)
+
+# Loop through each station in the dataset
+for (i in 1:nlevels(data$station_name)) {
+  # Subset data for the current station
+  station_data <- data %>% filter(station_name == levels(data$station_name)[i]) %>% group_by(station_name, year)
+  
+  # Estimate return levels for the current station
+  return_levels <- calculate_station_return_levels(station_data)
+  
+  # Add return levels to the dataframe
+  return_levels_all <- rbind(return_levels_all,
+                                   data.frame(station_name = station_data$station_name %>% unique(),
+                                              return_2yr = return_levels[1],
+                                              return_5yr = return_levels[2],
+                                              return_20yr = return_levels[3],
+                                              return_100yr = return_levels[4]))
+}
+
+# Print the dataframe
+print(return_levels_all)
+
+
+# Print the dataframe
+print(return_levels_all %>% filter(station_name == "795"))  
+
+```
+
+
+
+```{r, messages = FALSE}
+#Load spatial data
+ireland <- st_read("IRL_adm0.shp")
+
+
+data_unique2 <- distinct(data, station_name, lon, lat)
+
+## switched to use inner join to join the datasets
+return_levels_with_coords <- inner_join(return_levels_all, data_unique2, by = "station_name")
+
+# Convert return_levels_all_with_coords to sf object
+return_levels_sf <- st_as_sf(return_levels_with_coords, coords = c("lon", "lat"), crs = 4326)
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf) +
+  tm_dots(col = "return_2yr", size = 1.5, alpha = 0.5, title = "Return Level (2yr) Using Threshold") +
+  tm_style("gray")
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf) +
+  tm_dots(col = "return_5yr", size = 1.5, alpha = 0.5, title = "Return Level (5yr) Using Threshold") +
+  tm_style("gray")
+
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf) +
+  tm_dots(col = "return_20yr", size = 1.5, alpha = 0.5, title = "Return Level (20yr) Using Threshold") +
+  tm_style("gray")
+
+# Plot map of Ireland with return levels represented by colors
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf) +
+  tm_dots(col = "return_100yr", size = 1.5, alpha = 0.5, title = "Return Level (100yr) Using Threshold") +
+  tm_style("gray")
+```
+
+```{r, messages = FALSE}
+
+library(cluster)
+
+# Extract the coordinates from the 'geometry' column
+clustering_data2 <- st_coordinates(return_levels_sf)
+
+# Create a data frame with return levels and extracted coordinates
+clustering_data2 <- data.frame(
+                              lon = clustering_data2[, "X"],
+                              lat = clustering_data2[, "Y"])
+
+# Standardize the data (optional but recommended for K-means)
+scaled_data2 <- scale(clustering_data2)
+
+# Perform K-means clustering
+k <-  4 # Number of clusters
+set.seed(123)  # Set seed for reproducibility
+kmeans_result2 <- kmeans(scaled_data2, centers = k)
+
+# Define cluster names
+cluster_names2 <- c("West", "South", "North", "East")
+
+# Add cluster names to the original data
+return_levels_with_coords2 <- return_levels_sf %>%
+  mutate(cluster = factor(kmeans_result2$cluster, labels = cluster_names2))
+
+# Convert to sf object with clusters included
+return_levels_sf_clusters2 <- st_as_sf(return_levels_with_coords2, coords = c("lon", "lat"), crs = 4326)
+
+# Custom colors for clusters
+custom_colors2 <- c("white", "orange", "red", "yellow")
+
+# Plot the clusters
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf_clusters2) +
+  tm_dots(col = "cluster", palette = custom_colors2, size = 1, alpha = 0.5, title = "Return Level Clusters (5, Threshold Method)", title.size = 0.5) + 
+  tm_style("gray")
+```
+
+
+```{r, messages = FALSE}
+
+exceedance_data_threshold <-inner_join(data %>% select(station_name, year, month, day, surge_daily_max), return_levels_with_coords2, by = "station_name")
+
+annual_exceedance_counts_threshold <- exceedance_data_threshold  %>% 
+                              group_by(station_name, year) %>% 
+                              summarise(exceedance_5yr = sum(surge_daily_max > return_5yr),
+                                        exceedance_20yr = sum(surge_daily_max > return_20yr)) %>% 
+                              ungroup()
+
+## plot for 795
+ggplot(annual_exceedance_counts_threshold  %>% filter(station_name == "795"), aes(x = year, y = exceedance_5yr)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Exceedances Above 5-Year Return Level Per Year",
+       x = "Year", y = "Exceedances")
+```
+
+```{r, messages = FALSE}
+##FOR 20-YEAR EXCEEDANCES
+
+# Calculate total exceedances for each station
+station_exceedances_20yr <- exceedance_data_threshold %>%
+  group_by(cluster, station_name) %>%
+  summarise(total_exceedance_20yr = sum(surge_daily_max > return_20yr, na.rm = TRUE)) %>%
+  ungroup()
+# Summarize exceedances by cluster
+cluster_exceedance_summary_20yr_POT <- station_exceedances_20yr %>%
+  group_by(cluster) %>%
+  summarise(total_exceedance_20yr = sum(total_exceedance_20yr),
+            station_count = n_distinct(station_name),
+            avg_exceedance_20yr_per_station = total_exceedance_20yr / station_count )   %>%
+  ungroup()
+
+# Print the summary
+print(cluster_exceedance_summary_20yr_POT)
+
+##FOR 5 YEAR EXCEEDANCES
+
+# Calculate total exceedances for each station
+station_exceedances2 <- exceedance_data_threshold %>%
+  group_by(cluster, station_name) %>%
+  summarise(total_exceedance_5yr = sum(surge_daily_max > return_5yr, na.rm = TRUE)) %>%
+  ungroup()
+# Summarize exceedances by cluster
+cluster_exceedance_summary_POT <- station_exceedances2 %>%
+  group_by(cluster) %>%
+  summarise(total_exceedance_5yr = sum(total_exceedance_5yr),
+            station_count = n_distinct(station_name),
+            avg_exceedance_5yr_per_station = total_exceedance_5yr / station_count )   %>%
+  ungroup()
+
+# Print the summary
+print(cluster_exceedance_summary_POT)
+
+##FOR 2-YEAR EXCEEDANCES
+
+# Calculate total exceedances for each station
+station_exceedances_2yr <- exceedance_data_threshold%>%
+  group_by(cluster, station_name) %>%
+  summarise(total_exceedance_2yr = sum(surge_daily_max > return_2yr, na.rm = TRUE)) %>%
+  ungroup()
+# Summarize exceedances by cluster
+cluster_exceedance_summary_2yr_POT <- station_exceedances_2yr %>%
+  group_by(cluster) %>%
+  summarise(total_exceedance_2yr = sum(total_exceedance_2yr),
+            station_count = n_distinct(station_name),
+            avg_exceedance_2yr_per_station = total_exceedance_2yr / station_count )   %>%
+  ungroup()
+
+# Print the summary
+print(cluster_exceedance_summary_2yr_POT)
+
+
+```
+
+```{r, messages = FALSE}
+library(dplyr)
+library(ggplot2)
+
+
+# Step 2: Summarize total exceedances above the 5-year return level for each station and year
+annual_exceedance_counts2 <- exceedance_data_threshold %>%
+  group_by(cluster, station_name, year) %>%
+  summarise(exceedance_5yr = sum(surge_daily_max > return_5yr, na.rm = TRUE)) %>%
+  ungroup()
+
+# Check the summarized data
+print(annual_exceedance_counts2)
+
+# Step 3: Order stations by cluster and station name
+station_order <- annual_exceedance_counts2 %>%
+  arrange(cluster, station_name) %>%
+  pull(station_name) %>%
+  unique()
+
+# Convert station_name to factor with the specified order
+annual_exceedance_counts2$station_name <- factor(annual_exceedance_counts2$station_name, levels = station_order)
+
+# Step 4: Create the heatmap plot including every year label and smaller facet labels
+heatmap_plot2 <- ggplot(annual_exceedance_counts2, aes(x = year, y = station_name, fill = exceedance_5yr)) +
+  geom_tile() +
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Exceedances") +
+  labs(title = "Exceedances Above 5-Year Return Level Heatmap (Threshold)",
+       x = "Year", y = "Station") +
+  theme(
+    axis.text.y = element_text(size = 0),  # Adjust y-axis text size
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7),  # Rotate and adjust x-axis text size
+    plot.title = element_text(size = 14, face = "bold"),  # Adjust title size and style
+    legend.position = "bottom",
+    plot.margin = margin(t = 10, r = 10, b = 10, l = 10, unit = "pt"),  # Adjust plot margins
+    strip.text.y = element_text(size = 8),  # Adjust facet label text size
+    strip.background = element_rect(color = "black", fill = "lightgrey")  # Optional: Change facet background
+  ) +
+  scale_x_continuous(breaks = seq(min(annual_exceedance_counts2$year), max(annual_exceedance_counts2$year), by = 1)) +  # Label every year
+  facet_grid(cluster ~ ., scales = "free_y", space = "free_y")  # Separate clusters into facets
+
+# Print the plot
+print(heatmap_plot2)
+
+
+##2 YEAR HEATMAP
+library(dplyr)
+library(ggplot2)
+
+
+
+# Step 2: Summarize total exceedances above the 5-year return level for each station and year
+annual_exceedance_counts_2yr_threshold <- exceedance_data_threshold %>%
+  group_by(cluster, station_name, year) %>%
+  summarise(exceedance_2yr = sum(surge_daily_max > return_2yr, na.rm = TRUE)) %>%
+  ungroup()
+
+# Check the summarized data
+print(annual_exceedance_counts_2yr_threshold)
+
+# Step 3: Order stations by cluster and station name
+station_order <- annual_exceedance_counts_2yr_threshold %>%
+  arrange(cluster, station_name) %>%
+  pull(station_name) %>%
+  unique()
+
+# Convert station_name to factor with the specified order
+annual_exceedance_counts_2yr_threshold$station_name <- factor(annual_exceedance_counts_2yr_threshold$station_name, levels = station_order)
+
+# Step 4: Create the heatmap plot including every year label and smaller facet labels
+heatmap_plot_2yr_threshold <- ggplot(annual_exceedance_counts_2yr_threshold, aes(x = year, y = station_name, fill = exceedance_2yr)) +
+  geom_tile() +
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Exceedances") +
+  labs(title = "Exceedances Above 2-Year Return Level Heatmap (Threshold)",
+       x = "Year", y = "Station") +
+  theme(
+    axis.text.y = element_text(size = 0),  # Adjust y-axis text size
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7),  # Rotate and adjust x-axis text size
+    plot.title = element_text(size = 14, face = "bold"),  # Adjust title size and style
+    legend.position = "bottom",
+    plot.margin = margin(t = 10, r = 10, b = 10, l = 10, unit = "pt"),  # Adjust plot margins
+    strip.text.y = element_text(size = 8),  # Adjust facet label text size
+    strip.background = element_rect(color = "black", fill = "lightgrey")  # Optional: Change facet background
+  ) +
+  scale_x_continuous(breaks = seq(min(annual_exceedance_counts_2yr_threshold$year), max(annual_exceedance_counts_2yr_threshold$year), by = 1)) +  # Label every year
+  facet_grid(cluster ~ ., scales = "free_y", space = "free_y")  # Separate clusters into facets
+
+# Print the plot
+print(heatmap_plot_2yr_threshold)
+```
+
+```{r, messages = FALSE}
+
+library(cluster)
+
+# Extract the coordinates from the 'geometry' column
+clustering_data2 <- st_coordinates(return_levels_sf)
+
+# Create a data frame with return levels and extracted coordinates
+clustering_data2 <- data.frame(
+                              lon = clustering_data2[, "X"],
+                              lat = clustering_data2[, "Y"])
+
+# Standardise the data 
+scaled_data2 <- scale(clustering_data2)
+
+# Perform K-means clustering
+k <-  4 # Number of clusters
+set.seed(123)  # Set seed for reproducibility
+kmeans_result2 <- kmeans(scaled_data2, centers = k)
+
+# Define cluster names
+cluster_names2 <- c("West", "South", "North", "East")
+
+# Add cluster names to the original data
+return_levels_with_coords2 <- return_levels_sf %>%
+  mutate(cluster = factor(kmeans_result2$cluster, labels = cluster_names2))
+
+# Convert to sf object with clusters included
+return_levels_sf_clusters2 <- st_as_sf(return_levels_with_coords2, coords = c("lon", "lat"), crs = 4326)
+
+# Custom colours for clusters
+custom_colors2 <- c("white", "orange", "red", "yellow")
+
+# Plot the clusters
+tm_shape(ireland) +
+  tm_borders() +
+  tm_shape(return_levels_sf_clusters2) +
+  tm_dots(col = "cluster", palette = custom_colors2, size = 1, alpha = 0.5, title = "Return Level Clusters (2yr, Threshold Method)", title.size = 0.5) + 
+  tm_style("gray")
+```
+
+```{r, messages = FALSE}
+
+exceedance_data_threshold <-inner_join(data %>% select(station_name, year, month, day, surge_daily_max), return_levels_with_coords, by = "station_name")
+
+annual_exceedance_counts_threshold <- exceedance_data_threshold  %>% 
+                              group_by(station_name, year) %>% 
+                              summarise(exceedance_2yr = sum(surge_daily_max > return_2yr),
+                                        exceedance_20yr = sum(surge_daily_max > return_20yr)) %>% 
+                              ungroup()
+
+## plot for DL 
+ggplot(annual_exceedance_counts_threshold  %>% filter(station_name == "795"), aes(x = year, y = exceedance_2yr)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Exceedances Above 2-Year Return Level Per Year",
+       x = "Year", y = "Exceedances")
+```
+
+
+

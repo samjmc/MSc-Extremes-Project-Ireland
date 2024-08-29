@@ -12,14 +12,6 @@ library(ggplot2)
 library(tmap)
 library(sf)
 
-# Assuming you have the data for both methods in these dataframes:
-# return_levels_all_block (BM method)
-# return_levels_all_pot (POT method)
-
-# Example structure:
-# return_levels_all_block: station_name, return_2yr, return_5yr, return_20yr, return_100yr
-# return_levels_all_pot: station_name, return_2yr, return_5yr, return_20yr, return_100yr
-
 # Load spatial data for Ireland
 ireland <- st_read("IRL_adm0.shp")
 
@@ -48,7 +40,7 @@ tm_shape(ireland) +
   tm_shape(comparison_sf) +
   tm_dots(col = "difference", palette = "-RdYlBu", 
           title = "Difference in 5-Year Return Levels (BM - POT)", size = 1, alpha = 0.9) +
-  tm_style("gray")
+  tm_style("white")
 
 ```
 

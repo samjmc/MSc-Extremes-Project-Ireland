@@ -19,9 +19,6 @@ data <- readRDS("gtsr_daily_max_1979_2014.rds")
 
 Look at Dun Laoghaire first as an example. 
 
-
-
-
 From below the 5yr return level for DL is 0.937447. This can be used as a cross check for the code when running for all stations. 
 
 ```{r}
@@ -164,7 +161,7 @@ clustering_data <- data.frame(
                               lon = clustering_data[, "X"],
                               lat = clustering_data[, "Y"])
 
-# Standardize the data (optional but recommended for K-means)
+# Standardise the data
 scaled_data <- scale(clustering_data)
 
 # Perform K-means clustering
@@ -182,7 +179,7 @@ return_levels_with_coords_block <- return_levels_sf_block %>%
 # Convert to sf object with clusters included
 return_levels_sf_clusters <- st_as_sf(return_levels_with_coords_block, coords = c("lon", "lat"), crs = 4326)
 
-# Custom colors for clusters
+# Custom colours for clusters
 custom_colors <- c("white", "orange", "red", "yellow")
 
 # Plot the clusters
@@ -207,7 +204,7 @@ annual_exceedance_counts <- exceedance_data_block %>%
                                         exceedance_20yr = sum(surge_daily_max > return_20yr)) %>% 
                               ungroup()
 
-## plot for DL 
+## plot for DL 795
 ggplot(annual_exceedance_counts %>% filter(station_name == "795"), aes(x = year, y = exceedance_5yr)) +
   geom_bar(stat = "identity", fill = "skyblue") +
   labs(title = "Exceedances Above 5-Year Return Level Per Year",
@@ -260,7 +257,7 @@ station_exceedances_block_2yr <- exceedance_data_block %>%
   group_by(cluster, station_name) %>%
   summarise(total_exceedance_2yr = sum(surge_daily_max > return_2yr, na.rm = TRUE)) %>%
   ungroup()
-# Summarize exceedances by cluster
+# Summarise exceedances by cluster
 cluster_exceedance_summary_2yr <- station_exceedances_block_2yr %>%
   group_by(cluster) %>%
   summarise(total_exceedance_2yr = sum(total_exceedance_2yr),
@@ -277,13 +274,13 @@ library(dplyr)
 library(ggplot2)
 
 
-# Step 1: Summarize total exceedances above the 5-year return level for each station and year
+# Step 1: Summarise total exceedances above the 5-year return level for each station and year
 annual_exceedance_counts <- exceedance_data_block %>%
   group_by(cluster, station_name, year) %>%
   summarise(exceedance_5yr = sum(surge_daily_max > return_5yr, na.rm = TRUE)) %>%
   ungroup()
 
-# Check the summarized data
+# Check the summarised data
 print(annual_exceedance_counts)
 
 # Step 2: Order stations by cluster and station name
@@ -318,13 +315,13 @@ print(heatmap_plot)
 
 
 ##FOR 2YR HEATMAP
-# Step 1: Summarize total exceedances above the 2-year return level for each station and year
+# Step 1: Summarise total exceedances above the 2-year return level for each station and year
 annual_exceedance_counts_2yr_block <- exceedance_data_block %>%
   group_by(cluster, station_name, year) %>%
   summarise(exceedance_2yr = sum(surge_daily_max > return_2yr, na.rm = TRUE)) %>%
   ungroup()
 
-# Check the summarized data
+# Check the summarised data
 print(annual_exceedance_counts_2yr_block)
 
 # Step 2: Order stations by cluster and station name
@@ -358,7 +355,7 @@ heatmap_plot_2yr_block <- ggplot(annual_exceedance_counts_2yr_block, aes(x = yea
 print(heatmap_plot_2yr_block)
 
 #########################################FOR 20YR HEATMAP
-# Step 1: Summarize total exceedances above the 20-year return level for each station and year
+# Step 1: Summarise total exceedances above the 20-year return level for each station and year
 annual_exceedance_counts_20yr_block <- exceedance_data_block %>%
   group_by(cluster, station_name, year) %>%
   summarise(exceedance_20yr = sum(surge_daily_max > return_20yr, na.rm = TRUE)) %>%
@@ -389,7 +386,7 @@ heatmap_plot_20yr_block <- ggplot(annual_exceedance_counts_20yr_block, aes(x = y
     legend.position = "bottom",
     plot.margin = margin(t = 10, r = 10, b = 10, l = 10, unit = "pt"),  # Adjust plot margins
     strip.text.y = element_text(size = 8),  # Adjust facet label text size
-    strip.background = element_rect(color = "black", fill = "lightgrey")  # Optional: Change facet background
+    strip.background = element_rect(color = "black", fill = "lightgrey")  # Change facet background
   ) +
   scale_x_continuous(breaks = seq(min(annual_exceedance_counts_20yr_block$year), max(annual_exceedance_counts_20yr_block$year), by = 1)) +  # Label every year
   facet_grid(cluster ~ ., scales = "free_y", space = "free_y")  # Separate clusters into facets
@@ -398,7 +395,7 @@ heatmap_plot_20yr_block <- ggplot(annual_exceedance_counts_20yr_block, aes(x = y
 print(heatmap_plot_20yr_block)
 
 #########################################FOR 100YR HEATMAP
-# Step 1: Summarize total exceedances above the 100-year return level for each station and year
+# Step 1: Summarise total exceedances above the 100-year return level for each station and year
 annual_exceedance_counts_100yr_block <- exceedance_data_block %>%
   group_by(cluster, station_name, year) %>%
   summarise(exceedance_100yr = sum(surge_daily_max > return_100yr, na.rm = TRUE)) %>%
